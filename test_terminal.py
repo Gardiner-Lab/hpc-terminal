@@ -9,6 +9,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 import app as terminal_app
+import netpolicy
 import notebook as notebook_module
 import sessions as sessions_module
 from aiohttp import web
@@ -93,6 +94,17 @@ class World:
         conn.close()
         self.mp = pytest.MonkeyPatch()
         self.mp.setenv('MOCLO_DB', str(users))
+        # The suite's labs: lee leads the lab bob is in; cy is in another.
+        suite = self.tmp / 'suite.db'
+        conn = sqlite3.connect(suite)
+        conn.execute("CREATE TABLE lab_members (username TEXT, lab_id TEXT, role TEXT DEFAULT 'member', lab_admin INTEGER DEFAULT 0)")
+        conn.executemany('INSERT INTO lab_members VALUES (?, ?, ?, ?)',
+                         [('lee', 'lab1', 'lab_lead', 0), ('bob', 'lab1', 'member', 0), ('cy', 'lab2', 'member', 0)])
+        conn.commit()
+        conn.close()
+        self.mp.setenv('SUITE_DATABASE_PATH', str(suite))
+        # The test machine is on this computer: its network is the one allowed here.
+        self.mp.setenv('ALLOWED_NETWORKS', '127.0.0.0/8')
         files = self.tmp / 'home'
         (files / 'jobs').mkdir(parents=True)
         (files / 'jobs' / 'align.sh').write_text('#!/bin/sh\n#SBATCH --mem=64G\nbwa mem ref.fa reads.fq > out.sam\n')
@@ -662,3 +674,75 @@ def test_a_browser_that_loses_its_session_is_told_where_it_went(tmp_path):
             assert taken['where'] == '10.1.2.3'
             await second.close()
     run(go())
+
+
+
+# --- the networks the terminal may reach --------------------------------------------------------------
+
+def test_only_the_allowed_networks_are_permitted(monkeypatch):
+    monkeypatch.setenv('ALLOWED_NETWORKS', '192.168.2.0/24')
+    assert netpolicy.permitted('192.168.2.19') and not netpolicy.permitted('192.168.3.1')
+    assert not netpolicy.permitted('131.211.32.87') and not netpolicy.permitted('127.0.0.1')
+    monkeypatch.delenv('ALLOWED_NETWORKS')                      # unset: private networks only
+    assert netpolicy.permitted('10.4.5.6') and netpolicy.permitted('192.168.2.19')
+    assert not netpolicy.permitted('131.211.32.87') and not netpolicy.permitted('8.8.8.8')
+    assert not netpolicy.permitted('127.0.0.1') and not netpolicy.permitted('169.254.169.254')   # never the server, nor cloud metadata
+    with pytest.raises(netpolicy.NotAllowed, match='outside the networks'):
+        netpolicy.resolve('127.0.0.1', 22)
+
+
+def test_a_machine_outside_the_allowed_networks_is_not_added_nor_reached(tmp_path):
+    async def go():
+        async with World(tmp_path) as w:
+            host = await w.machine()                                       # 127.0.0.1: allowed here
+            c = await w.connection('bob', host)
+            w.mp.setenv('ALLOWED_NETWORKS', '192.168.2.0/24')            # then the limit is narrowed
+            res = await w.call('POST', '/api/hosts', 'ada', {'name': 'x', 'hostname': '127.0.0.2', 'port': w.port})
+            assert res.status == 400 and 'outside the networks' in (await res.json())['error']
+            ws = await w.socket(connection=c['id'])
+            out, _ = await read_until(ws, 'outside the networks')         # checked again on connecting
+            assert 'assword' not in out
+            me = await (await w.call('GET', '/api/me', 'ada')).json()
+            assert me['networks'] == '192.168.2.0/24'
+    run(go())
+
+
+# --- the overview: administrators and lab leads -------------------------------------------------------
+
+def test_administrators_and_lab_leads_see_open_sessions_and_members_do_not(tmp_path):
+    async def go():
+        async with World(tmp_path) as w:
+            host = await w.machine()
+            sockets = {}
+            for user in ('bob', 'cy'):
+                c = await w.connection(user, host)
+                sockets[user] = await w.client.ws_connect('/api/ws', params={'connection': c['id']},
+                                                          headers={'X-Suite-User': user, 'X-Real-IP': f'10.0.0.{len(user)}'})
+                await read_until(sockets[user], 'assword:')
+            everyone = await (await w.call('GET', '/api/overview', 'ada')).json()
+            assert everyone['everyone'] is True and {s['owner'] for s in everyone['sessions']} == {'bob', 'cy'}
+            assert all('buffer' not in s and 'text' not in s for s in everyone['sessions'])     # never the screen
+            lab = await (await w.call('GET', '/api/overview', 'lee')).json()
+            assert lab['everyone'] is False and [s['owner'] for s in lab['sessions']] == ['bob']
+            assert lab['sessions'][0]['where'] == '10.0.0.3' and lab['sessions'][0]['attached'] is True
+            assert (await w.call('GET', '/api/overview', 'cy')).status == 403
+            assert (await w.call('GET', '/api/overview', 'bob')).status == 403
+            # A lab lead ends their member's session, not someone else's.
+            cys = next(s for s in everyone['sessions'] if s['owner'] == 'cy')
+            assert (await w.call('POST', f"/api/overview/{cys['id']}/end", 'lee', {})).status == 404
+            bobs = lab['sessions'][0]
+            assert (await w.call('POST', f"/api/overview/{bobs['id']}/end", 'lee', {})).status == 200
+            out, _ = await read_until(sockets['bob'], 'Ended by lee')
+            assert [s['owner'] for s in (await (await w.call('GET', '/api/overview', 'ada')).json())['sessions']] == ['cy']
+            home = await (await w.call('GET', '/', 'lee')).text()
+            assert 'id="overview-card"' in home and 'id="overview-card"' not in await (await w.call('GET', '/', 'bob')).text()
+    run(go())
+
+
+def test_every_module_is_copied_into_the_image():
+    """The Dockerfile lists the files it copies: a module left off it starts in the tests and not in the image."""
+    from pathlib import Path
+    here = Path(__file__).parent
+    copied = next(line for line in (here / 'Dockerfile').read_text().splitlines() if line.startswith('COPY app.py'))
+    modules = {p.name for p in here.glob('*.py') if not p.name.startswith('test_')}
+    assert modules <= set(copied.split()), sorted(modules - set(copied.split()))

@@ -23,6 +23,8 @@ from typing import Dict, List, Optional
 
 import asyncssh
 
+import netpolicy
+
 SCROLLBACK = 1024 * 1024                # bytes of output kept while away (about 12,000 lines), sent again on return
 ASK_TIMEOUT = 300                       # seconds to type a password or code before giving up
 FAILED_LOGINS = 5                       # failed logins a member may have within FAILED_WINDOW, then a pause
@@ -38,10 +40,17 @@ TMUX_COMMAND = ('if command -v tmux >/dev/null 2>&1; then exec tmux new-session 
 
 
 async def _tcp(host: str, port: int):
-    """A connected TCP socket to the machine (IPv4 or IPv6, the first that answers), for AsyncSSH."""
+    """
+    A connected TCP socket to the machine (IPv4 or IPv6, the first that answers), for AsyncSSH: only to an
+    address in the networks the terminal may reach, resolved now and connected to as checked (netpolicy.py).
+    """
     loop = asyncio.get_running_loop()
+    try:
+        addresses = await loop.run_in_executor(None, netpolicy.resolve, host, port)
+    except netpolicy.NotAllowed as exc:
+        raise SessionError(str(exc))
     last = None
-    for family, kind, proto, _, address in await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM):
+    for family, kind, proto, address in addresses:
         sock = socket.socket(family, kind, proto)
         sock.setblocking(False)
         try:
@@ -79,6 +88,7 @@ class Session:
         self.record_day = time.strftime('%Y-%m-%d', time.localtime(self.started))
         self.was_open = False
         self.login_failed = False       # refused by the machine: counts towards the member's pause
+        self.where = ''                 # the address of the browser it was last opened from
         self.ended = None               # when it ended
         self.on_end = None              # called with the session when it has ended (Sessions sets it)
         self.socket = None              # the attached browser's websocket, if any
@@ -121,6 +131,7 @@ class Session:
     async def attach(self, socket, where: str = '') -> None:
         old, self.socket = self.socket, socket
         self.detached_at = None
+        self.where = where or self.where
         print(f'[terminal] {self.owner} opened their session on {self.target} from {where or "an unknown address"}'
               f'{" (taking it over from another browser)" if old is not None else ""}', flush=True)
         if old is not None:
@@ -389,6 +400,20 @@ class Sessions:
         self.daily = None               # called with a session and the day to record (notebook.record)
         self.per_member = per_member
         self.total = total
+
+    def overview(self, owners=None) -> List[dict]:
+        """Who is connected where, for an administrator (owners None: everyone) or a lab lead (their members).
+        Never what is on the screen."""
+        out = []
+        for s in sorted(self.all.values(), key=lambda s: s.started, reverse=True):
+            if s.state == 'closed' or (owners is not None and s.owner not in owners):
+                continue
+            out.append({'id': s.id, 'owner': s.owner, 'label': s.label, 'target': s.target, 'state': s.state,
+                        'started': time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(s.started)),
+                        'attached': s.socket is not None, 'where': s.where,
+                        'away_since': None if s.detached_at is None else
+                        time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(s.detached_at))})
+        return out
 
     def mine(self, owner: str) -> List[Session]:
         return [s for s in self.all.values() if s.owner == owner]

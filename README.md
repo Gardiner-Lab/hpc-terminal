@@ -34,6 +34,24 @@ It runs as the `terminal` service of Trellis Tools, at `/terminal/`, signed in b
 | `KEEP_HOURS` | `0` | close sessions left with no browser this long (0: never) |
 | `SESSIONS_PER_MEMBER` | `6` | open sessions each member may have |
 
+| `ALLOWED_NETWORKS` | private networks | the networks it may connect to, comma-separated CIDRs (the HPC subnet) |
+| `SUITE_DATABASE_PATH` | `/suite/suite.db` | the suite's labs, read only: who leads which lab, for the overview |
+
+### Limiting where it can connect
+
+`ALLOWED_NETWORKS` is enforced by the terminal: a machine outside it is neither added nor connected to. For a
+limit that holds even if the service itself were compromised, also let its container out only to those networks
+in the server's firewall. On a Linux server, with Docker's `DOCKER-USER` chain (adjust the subnets):
+
+```sh
+TERMINAL_NET=$(docker network inspect gardiner-lab-suite_terminal -f '{{(index .IPAM.Config 0).Subnet}}')
+iptables -I DOCKER-USER -s "$TERMINAL_NET" -j DROP
+iptables -I DOCKER-USER -s "$TERMINAL_NET" -d 192.168.2.0/24 -p tcp --dport 22 -j ACCEPT
+iptables -I DOCKER-USER -s "$TERMINAL_NET" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+```
+
+In the suite it is on a Docker network of its own, shared only with the proxy and the notebook.
+
 Behind the proxy only: reachable directly, anyone could name themselves in `X-Suite-User`. The proxy's
 `/terminal/` block must set that header itself (and the websocket upgrade headers).
 

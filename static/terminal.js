@@ -185,7 +185,32 @@
       });
     }
 
+    function loadOverview() {
+      if (!el('overview')) { return; }
+      return call('GET', API + '/overview').then(function (res) {
+        el('overview-title').textContent = res.everyone ? 'Everyone\u2019s open sessions' : 'Open sessions in your labs';
+        var body = el('overview').querySelector('tbody');
+        el('overview-empty').hidden = res.sessions.length > 0;
+        body.replaceChildren.apply(body, res.sessions.map(function (s) {
+          var end = make('button', { class: 'tt-btn danger', type: 'button', text: 'End', onclick: function () {
+            if (!window.confirm('End ' + s.owner + '\u2019s session on ' + s.target + '? Its connection closes; what runs in tmux ' +
+              'on the machine carries on. They will see who ended it.')) { return; }
+            call('POST', API + '/overview/' + s.id + '/end', {}).then(loadOverview);
+          } });
+          return make('tr', {}, [
+            make('td', {}, [make('b', { text: s.owner }), make('div', { class: 'term-hint', text: s.label })]),
+            make('td', {}, [make('code', { text: s.target })]),
+            make('td', { text: s.started.replace('T', ' ').slice(0, 16) }),
+            make('td', { text: (s.attached ? 'open now' : (s.away_since ? 'away since ' + s.away_since.replace('T', ' ').slice(0, 16) : 'not opened')) +
+              (s.where ? ', ' + s.where : '') }),
+            make('td', {}, [end])]);
+        }));
+      });
+    }
+
     loadHosts().then(loadConnections).catch(function (err) { showError('connection-error', err); });
+    loadOverview();
+    setInterval(loadOverview, 15000);
     loadSessions();
     setInterval(loadSessions, 15000);
   }

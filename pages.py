@@ -33,12 +33,13 @@ def _page(title: str, prefix: str, body: str, notebook: str = '', user: str = ''
 """
 
 
-def home(prefix: str, notebook: str, user: str, admin: bool) -> str:
+def home(prefix: str, notebook: str, user: str, admin: bool, oversees: bool = False, networks: str = '') -> str:
     machines = """
     <section class="term-card" id="machines-card">
       <h2>The lab's machines</h2>
       <p class="term-hint">The HPC machines members can open a terminal on. Only these can be reached. Each is checked
         against the host key it was added with; compare the fingerprint with the one the machine's administrators give.</p>
+      <p class="term-hint">Machines can only be on these networks: <code>{escape(networks)}</code>.</p>
       <table class="term-table" id="machines"><thead><tr><th>Name</th><th>Address</th><th>Host key (SHA256)</th><th></th></tr></thead><tbody></tbody></table>
       <form id="add-machine" class="term-form">
         <label>Name <input name="name" maxlength="80" required placeholder="Cluster login node"></label>
@@ -49,7 +50,16 @@ def home(prefix: str, notebook: str, user: str, admin: bool) -> str:
       </form>
       <p class="term-done" id="machine-done" role="status" hidden></p>
       <p class="term-error" id="machine-error" role="alert" hidden></p>
-    </section>""" if admin else ''
+    </section>""".replace('{escape(networks)}', escape(networks)) if admin else ''
+    overview = """
+    <section class="term-card" id="overview-card">
+      <h2 id="overview-title">Open sessions</h2>
+      <p class="term-hint">Who is connected to which machine, since when, and from where; never what is on their screen.
+        Ending a session closes its connection; what runs in tmux on the machine carries on.</p>
+      <table class="term-table" id="overview"><thead><tr><th>Who</th><th>Where</th><th>Since</th><th>Browser</th><th></th></tr></thead>
+        <tbody></tbody></table>
+      <p class="term-hint" id="overview-empty" hidden>None open.</p>
+    </section>""" if oversees else ''
     body = f"""
   <main class="term-main">
     <h1>HPC Terminal</h1>
@@ -78,6 +88,7 @@ def home(prefix: str, notebook: str, user: str, admin: bool) -> str:
       </form>
       <p class="term-error" id="connection-error" role="alert" hidden></p>
     </section>
+{overview}
 {machines}
   </main>"""
     return _page('HPC Terminal', prefix, body, notebook, user)

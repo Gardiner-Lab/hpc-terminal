@@ -9,6 +9,16 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **An overview of open sessions** on the HPC Terminal page: everyone's for an administrator, their labs' members'
+  for a lab lead or lab administrator (the suite's lab_members). Who is connected to which machine, since when,
+  whether a browser has it open and from where; never what is on the screen. They can end a session (its owner
+  sees who ended it; what runs in tmux carries on), and it is logged.
+- **Only the lab's networks**: a machine is only added, and only connected to, when its address is in
+  `ALLOWED_NETWORKS` (the HPC subnet; private networks only when unset). Checked against the address the name
+  resolves to at that moment, and connected to as checked. The server itself, link-local and cloud-metadata
+  addresses are never reached unless listed outright.
+
 ## [0.1.1] - 2026-11-15
 
 ### Fixed

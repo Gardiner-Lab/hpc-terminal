@@ -25,12 +25,14 @@ from typing import Optional
 import asyncssh
 from aiohttp import WSMsgType, web
 
+import netpolicy
 import notebook
 import pages
+import people
 from sessions import SessionError, Sessions
 from store import Store
 
-APP_VERSION = '0.1.1'
+APP_VERSION = '0.2.0'
 HERE = Path(__file__).parent
 MAX_SCRIPT_BYTES = 1024 * 1024
 HOSTNAME = re.compile(r'^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$|^\[?[0-9A-Fa-f:.]+\]?$')
@@ -48,17 +50,7 @@ def member(request) -> str:
 
 def is_admin(username: str) -> bool:
     """A suite administrator, from MoClo's account directory (users.is_admin), read-only."""
-    path = os.environ.get('MOCLO_DB', '/moclo/moclo.db')
-    try:
-        conn = sqlite3.connect(f'file:{path}?mode=ro', uri=True, timeout=5)
-        conn.row_factory = sqlite3.Row
-        try:
-            row = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        return False
-    return bool(row is not None and 'is_admin' in row.keys() and row['is_admin'])
+    return people.is_admin(username)
 
 
 def same_origin(request) -> None:
@@ -86,8 +78,13 @@ def _body(request) -> dict:
 # --- machines (administrators) -----------------------------------------------------------------------
 
 async def scan_host_key(hostname: str, port: int):
-    """The machine's host key, as it gives it now: (OpenSSH line, SHA256 fingerprint)."""
-    key = await asyncio.wait_for(asyncssh.get_server_host_key(hostname, port), timeout=20)
+    """The machine's host key, as it gives it now: (OpenSSH line, SHA256 fingerprint). Only within the networks
+    the terminal may reach."""
+    try:
+        addresses = await asyncio.get_running_loop().run_in_executor(None, netpolicy.resolve, hostname, port)
+    except netpolicy.NotAllowed as exc:
+        raise SessionError(str(exc))
+    key = await asyncio.wait_for(asyncssh.get_server_host_key(addresses[0][3][0], port), timeout=20)
     if key is None:
         raise SessionError('The machine gave no host key.')
     return key.export_public_key('openssh').decode().strip(), key.get_fingerprint('sha256')
@@ -152,6 +149,8 @@ def create_app(data_dir: Optional[Path] = None, prefix: Optional[str] = None, ke
     r.add_get('/api/sessions/{id}/files', api_files)
     r.add_get('/api/sessions/{id}/file', api_file)
     r.add_get('/api/ws', websocket)
+    r.add_get('/api/overview', api_overview)
+    r.add_post('/api/overview/{id}/end', api_overview_end)
     app.on_startup.append(_start_tidying)
     app.on_shutdown.append(_stop)
     return app
@@ -199,7 +198,9 @@ def _page(request, html: str):
 
 async def page_home(request):
     user = member(request)
-    return _page(request, pages.home(request.app['prefix'], request.app['notebook'], user, is_admin(user)))
+    seen = people.overseen(user)
+    return _page(request, pages.home(request.app['prefix'], request.app['notebook'], user, is_admin(user),
+                                     seen is None or bool(seen), netpolicy.describe()))
 
 
 async def page_terminal(request):
@@ -222,12 +223,15 @@ async def page_about(request):
 
 async def api_me(request):
     user = member(request)
-    return web.json_response({'user': user, 'admin': is_admin(user), 'notebook': request.app['notebook']})
+    seen = people.overseen(user)
+    return web.json_response({'user': user, 'admin': is_admin(user), 'notebook': request.app['notebook'],
+                              'oversees': seen is None or bool(seen), 'networks': netpolicy.describe()})
 
 
 async def api_hosts(request):
     member(request)
-    return web.json_response([host_view(h) for h in request.app['store'].hosts()])
+    hosts = [host_view(h) for h in request.app['store'].hosts()]
+    return web.json_response(hosts, headers={'X-Allowed-Networks': netpolicy.describe()})
 
 
 async def api_add_host(request):
@@ -417,6 +421,34 @@ async def api_file(request):
                               'text': data.decode('utf-8', errors='replace'),
                               'modified': time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(attrs.mtime or 0)),
                               'modified_day': time.strftime('%Y-%m-%d', time.localtime(attrs.mtime or 0))})
+
+
+# --- the overview: administrators and lab leads ---
+
+def _overseen(request):
+    user = member(request)
+    seen = people.overseen(user)
+    if seen is not None and not seen:
+        raise web.HTTPForbidden(text=json.dumps({'error': 'Only administrators and lab leads see others\u2019 sessions.'}),
+                                content_type='application/json')
+    return user, seen
+
+
+async def api_overview(request):
+    """Open sessions: everyone's for an administrator, their labs' members' for a lab lead or lab administrator."""
+    _, seen = _overseen(request)
+    return web.json_response({'sessions': request.app['sessions'].overview(seen), 'everyone': seen is None})
+
+
+async def api_overview_end(request):
+    """End someone's session (one they may see): the machine connection closes; what runs in tmux carries on."""
+    user, seen = _overseen(request)
+    s = request.app['sessions'].all.get(request.match_info['id'])
+    if s is None or s.state == 'closed' or (seen is not None and s.owner not in seen):
+        return fail(404, 'No such session.')
+    print(f'[terminal] {user} ended the session of {s.owner} on {s.target}', flush=True)
+    await s.close(f'Ended by {user}.')
+    return web.json_response({'ended': True})
 
 
 # --- the terminal itself ---
