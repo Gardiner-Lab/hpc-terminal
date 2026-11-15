@@ -246,9 +246,20 @@ class Session:
                                    'This can mean it was reinstalled, or that something is in between: nothing was '
                                    'sent. Ask an administrator to check it (HPC Terminal, Machines).')
             except asyncssh.PermissionDenied:
-                raise SessionError('Login refused.')
-            except (OSError, asyncio.TimeoutError) as exc:
-                raise SessionError(f'Could not reach {c["hostname"]}:{c["port"]}: {exc}')
+                raise SessionError('Login refused.' + (
+                    ' Many machines refuse a password login as root whatever the password (OpenSSH\'s default, '
+                    'PermitRootLogin prohibit-password): log in as your own user, and use sudo.'
+                    if c['username'] == 'root' else ''))
+            except (asyncssh.ConnectionLost, ConnectionResetError, asyncio.TimeoutError) as exc:
+                # OpenSSH 9.8 and later turn an address away for a while after failed logins (PerSourcePenalties):
+                # what that looks like from here is a connection dropped, or no answer.
+                what = 'did not answer' if isinstance(exc, asyncio.TimeoutError) else 'dropped the connection'
+                raise SessionError(f'{c["hostname"]}:{c["port"]} {what} before the login. If logins just failed, the '
+                                   'machine may be turning this server away for a while (OpenSSH does after failed '
+                                   'logins): wait a few minutes and try again. Otherwise it may be off, or not '
+                                   'reachable from the suite\'s server.')
+            except OSError as exc:
+                raise SessionError(f'Could not reach {c["hostname"]}:{c["port"]}: {exc.strerror or exc}')
             except asyncssh.Error as exc:
                 raise SessionError(f'The machine closed the connection: {exc.reason}')
             command = TMUX_COMMAND.format(name='trellis') if c.get('tmux') else None

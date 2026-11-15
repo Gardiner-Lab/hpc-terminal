@@ -561,3 +561,32 @@ def test_a_server_that_lists_keyboard_interactive_but_asks_nothing_still_gets_th
             await send(ws, PASSWORD + '\r')
             await read_until(ws, 'Welcome to the test HPC')
     run(go())
+
+
+def test_a_refused_root_login_says_why(tmp_path):
+    async def go():
+        async with World(tmp_path) as w:
+            host = await w.machine()
+            res = await w.call('POST', '/api/connections', 'bob', {'host_id': host['id'], 'username': 'root'})
+            c = await res.json()
+            ws = await w.socket(connection=c['id'])
+            for _ in range(sessions_module.MAX_TRIES):
+                await read_until(ws, 'assword:')
+                await send(ws, 'wrong\r')
+            out, _ = await read_until(ws, 'PermitRootLogin')
+            assert 'log in as your own user' in out
+    run(go())
+
+
+def test_a_machine_that_does_not_answer_is_said_so(tmp_path):
+    async def go():
+        async with World(tmp_path) as w:
+            host = await w.machine()
+            c = await w.connection('bob', host)
+            w.ssh.close()                                     # the machine goes away
+            await asyncio.sleep(0.1)
+            ws = await w.socket(connection=c['id'])
+            out, _ = await read_until(ws, ']')
+            assert 'Could not reach 127.0.0.1' in out or 'before the login' in out
+            assert not out.rstrip().endswith(': ]')           # never an empty reason
+    run(go())
