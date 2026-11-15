@@ -16,6 +16,7 @@ outlives this session as well (a restart of this service, say); attaching again 
 """
 import asyncio
 import json
+import socket
 import time
 import uuid
 from typing import Dict, List, Optional
@@ -25,11 +26,29 @@ import asyncssh
 SCROLLBACK = 1024 * 1024                # bytes of output kept while away (about 12,000 lines), sent again on return
 ASK_TIMEOUT = 300                       # seconds to type a password or code before giving up
 MAX_TRIES = 3                           # wrong answers before the login is given up
+CONNECT_TIMEOUT = 20                    # seconds for the machine to answer at all
+LOGIN_TIMEOUT = 600                     # seconds to log in once it has: typing a password and a code takes a while
 
 # On the machine: tmux when it has it (one session per connection, attached again when it exists),
 # otherwise the login shell.
 TMUX_COMMAND = ('if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s {name}; '
                 'else exec "${{SHELL:-/bin/sh}}" -l; fi')
+
+
+async def _tcp(host: str, port: int):
+    """A connected TCP socket to the machine (IPv4 or IPv6, the first that answers), for AsyncSSH."""
+    loop = asyncio.get_running_loop()
+    last = None
+    for family, kind, proto, _, address in await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM):
+        sock = socket.socket(family, kind, proto)
+        sock.setblocking(False)
+        try:
+            await loop.sock_connect(sock, address)
+            return sock
+        except OSError as exc:
+            sock.close()
+            last = exc
+    raise last or OSError(f'{host} has no address')
 
 
 class SessionError(Exception):
@@ -241,10 +260,14 @@ class Session:
                     return await session.ask(f"{c['username']}@{c['hostname']}'s password: ", False)
 
             try:
+                # The network connection within CONNECT_TIMEOUT, made here: AsyncSSH's own connect_timeout also
+                # counts the login, which cut people off while they typed their password. The login has
+                # LOGIN_TIMEOUT, from when the machine first answers.
+                sock = await asyncio.wait_for(_tcp(c['hostname'], int(c['port'])), timeout=CONNECT_TIMEOUT)
                 self.conn, _ = await asyncssh.create_connection(
-                    Client, c['hostname'], int(c['port']), username=c['username'],
+                    Client, c['hostname'], int(c['port']), sock=sock, username=c['username'],
                     known_hosts=([key], [], []), client_keys=[], agent_path=None, password=None,
-                    preferred_auth='keyboard-interactive,password', connect_timeout=20, login_timeout=600,
+                    preferred_auth='keyboard-interactive,password', login_timeout=LOGIN_TIMEOUT,
                     keepalive_interval=60, config=[])
             except asyncssh.HostKeyNotVerifiable:
                 raise SessionError('The machine answered with a different host key from the one it was added with. '

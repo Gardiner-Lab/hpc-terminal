@@ -590,3 +590,17 @@ def test_a_machine_that_does_not_answer_is_said_so(tmp_path):
             assert 'Could not reach 127.0.0.1' in out or 'before the login' in out
             assert not out.rstrip().endswith(': ]')           # never an empty reason
     run(go())
+
+
+def test_typing_the_password_slowly_is_not_cut_off(tmp_path, monkeypatch):
+    # The connect limit is for the machine to answer; the login has its own, much longer one.
+    monkeypatch.setattr(sessions_module, 'CONNECT_TIMEOUT', 0.5)
+    async def go():
+        async with World(tmp_path) as w:
+            c = await w.connection('bob')
+            ws = await w.socket(connection=c['id'])
+            await read_until(ws, 'assword:')
+            await asyncio.sleep(1.5)                          # three times the connect limit, thinking
+            await send(ws, PASSWORD + '\r')
+            await read_until(ws, 'Welcome to the test HPC')
+    run(go())
