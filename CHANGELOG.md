@@ -9,6 +9,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-15
+
+### Added
+- **The networks set on the suite's dashboard** (HPC Terminal tab, Trellis 2.55): read from the suite's database on
+  every check, so a change counts at once. `ALLOWED_NETWORKS` stays the list until one is saved there; `NETWORK_LIMIT`,
+  set on the server, bounds what the dashboard may allow. An unreadable list allows nothing.
+
 ## [0.2.0] - 2026-11-15
 
 ### Added

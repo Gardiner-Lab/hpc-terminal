@@ -32,7 +32,7 @@ import people
 from sessions import SessionError, Sessions
 from store import Store
 
-APP_VERSION = '0.2.0'
+APP_VERSION = '0.2.1'
 HERE = Path(__file__).parent
 MAX_SCRIPT_BYTES = 1024 * 1024
 HOSTNAME = re.compile(r'^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$|^\[?[0-9A-Fa-f:.]+\]?$')
