@@ -192,6 +192,10 @@ class Session:
             # password, then a one-time code) asks different questions, which are not counted.
             asked: set = set()
             wrong = [0]
+            # Keyboard-interactive tried, and whether the server then asked anything. OpenSSH without PAM lists
+            # the method but fails it at once, asking nothing: tried again and again, that used up the server's
+            # MaxAuthTries ("Too many authentication failures") before the password was ever asked.
+            kbd = {'tries': 0, 'asked': False}
 
             def again(question) -> bool:
                 """Whether to answer this question: False once MAX_TRIES answers were wrong."""
@@ -210,9 +214,14 @@ class Session:
                     asyncio.ensure_future(session.say(msg))
 
                 def kbdint_auth_requested(self):
+                    if wrong[0] >= MAX_TRIES or (kbd['tries'] and not kbd['asked']):
+                        return None          # on to the password
+                    kbd['tries'] += 1
+                    kbd['asked'] = False
                     return ''
 
                 async def kbdint_challenge_received(self, name, instructions, lang, prompts):
+                    kbd['asked'] = True
                     if not prompts:
                         return []
                     if not again(tuple(p for p, _ in prompts)):
@@ -268,6 +277,9 @@ class Session:
         finally:
             if self.conn is not None:
                 self.conn.close()
+            # In the service's log (docker logs), for whoever looks after it: who, where, and why it ended.
+            print(f'[terminal] session of {self.owner} on {self.target} ended '
+                  f'({"after login" if self.was_open else "before login"}): {self.reason}', flush=True)
             self.state = 'closed'
             self.detached_at = self.detached_at or time.time()
             try:

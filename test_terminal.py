@@ -49,6 +49,16 @@ class TwoStepServer(Server):
         return responses == ['123456']
 
 
+class NoPamServer(Server):
+    """As OpenSSH without PAM: keyboard-interactive listed, but failed at once without a question."""
+
+    def kbdint_auth_supported(self):
+        return True
+
+    def get_kbdint_challenge(self, username, lang, submethods):
+        return False
+
+
 async def shell(process):
     process.stdout.write('Welcome to the test HPC\r\n$ ')
     while True:
@@ -539,4 +549,15 @@ def test_when_the_notebook_cannot_be_reached_the_text_is_kept_to_save_by_hand(tm
             [session] = w.app['sessions'].mine('bob')
             data, _ = session.unrecorded()
             assert b'Welcome to the test HPC' in data                       # not taken as recorded
+    run(go())
+
+
+def test_a_server_that_lists_keyboard_interactive_but_asks_nothing_still_gets_the_password(tmp_path):
+    async def go():
+        async with World(tmp_path, NoPamServer) as w:
+            c = await w.connection('bob')
+            ws = await w.socket(connection=c['id'])
+            out, _ = await read_until(ws, "password: ")              # asked, not "Too many authentication failures"
+            await send(ws, PASSWORD + '\r')
+            await read_until(ws, 'Welcome to the test HPC')
     run(go())

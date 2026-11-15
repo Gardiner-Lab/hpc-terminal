@@ -9,6 +9,15 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **No login to an OpenSSH server without PAM** ("Too many authentication failures", the password never asked):
+  such a server lists keyboard-interactive but fails it at once without a question, and the terminal tried it
+  again until the server's MaxAuthTries ran out. A keyboard-interactive attempt that asks nothing is now not
+  tried again, and the password is asked.
+
+### Added
+- Each session's end in the service's log (`docker logs lab-terminal`): whose, where, before or after login, and why.
+
 ## [0.1.0] - 2026-11-15
 
 The first release.
