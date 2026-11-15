@@ -33,7 +33,6 @@ It runs as the `terminal` service of Trellis Tools, at `/terminal/`, signed in b
 | `IDLE_MINUTES` | `5` | a page with no activity this long locks (0: never) |
 | `KEEP_HOURS` | `0` | close sessions left with no browser this long (0: never) |
 | `SESSIONS_PER_MEMBER` | `6` | open sessions each member may have |
-
 | `ALLOWED_NETWORKS` | private networks | the networks it may connect to, comma-separated CIDRs (the HPC subnet) |
 | `SUITE_DATABASE_PATH` | `/suite/suite.db` | the suite's labs, read only: who leads which lab, for the overview |
 
@@ -49,6 +48,10 @@ iptables -I DOCKER-USER -s "$TERMINAL_NET" -j DROP
 iptables -I DOCKER-USER -s "$TERMINAL_NET" -d 192.168.2.0/24 -p tcp --dport 22 -j ACCEPT
 iptables -I DOCKER-USER -s "$TERMINAL_NET" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 ```
+
+Check afterwards that sessions still open and are recorded in the notebook, and make the rules persistent the way
+your server keeps its firewall. Docker Desktop (Windows, macOS) has no such chain: there, the terminal's own limit
+is what holds.
 
 In the suite it is on a Docker network of its own, shared only with the proxy and the notebook.
 
