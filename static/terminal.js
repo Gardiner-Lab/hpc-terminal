@@ -261,7 +261,11 @@
         else if (m.t === 'error') { ended = true; term.write('\r\n\x1b[31m' + m.message + '\x1b[0m\r\n'); el('term-state').textContent = m.message; }
         else if (m.t === 'locked') { lock(); }
         else if (m.t === 'ask') { askBox(m); }
-        else if (m.t === 'taken') { taken = true; term.write('\r\n\x1b[33m[Opened in another window: this one has let go of it. Reload to take it back.]\x1b[0m\r\n'); }
+        else if (m.t === 'taken') {
+          taken = true;
+          term.write('\r\n\x1b[33m[Opened in another browser' + (m.where ? ', at ' + m.where : '') + ': this one has let go of it. ' +
+            'Reload to take it back. If that was not you, end the session and tell an administrator.]\x1b[0m\r\n');
+        }
       };
       socket.onclose = function () {
         if (ended || taken || locked) { return; }

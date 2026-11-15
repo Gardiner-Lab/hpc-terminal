@@ -198,6 +198,10 @@ def help_page(prefix: str) -> str:
     <ul>
       <li>Kept: the lab's machines and their host keys; each member's connections (user name, machine, name). Each member sees
         only their own.</li>
+      <li>Logged by the service (for whoever looks after it): who started a session on which machine, each time a
+        browser opens it and from which address, each login step (the question asked, never the answer), and how it ended.
+        A browser that loses a session to another is told that browser's address.</li>
+      <li>After 5 refused logins within 10 minutes, a member waits a few minutes before trying again.</li>
       <li>Not kept: passwords, one-time codes, private keys. No SSH agent is used.</li>
       <li>A session's recent output is held in memory while it is open, for coming back to it, and is gone when it closes.</li>
       <li>Nothing runs on this server: the terminal only reaches the machine you connect to.</li>

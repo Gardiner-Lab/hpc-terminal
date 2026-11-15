@@ -25,6 +25,8 @@ import asyncssh
 
 SCROLLBACK = 1024 * 1024                # bytes of output kept while away (about 12,000 lines), sent again on return
 ASK_TIMEOUT = 300                       # seconds to type a password or code before giving up
+FAILED_LOGINS = 5                       # failed logins a member may have within FAILED_WINDOW, then a pause
+FAILED_WINDOW = 600                     # seconds
 MAX_TRIES = 3                           # wrong answers before the login is given up
 CONNECT_TIMEOUT = 20                    # seconds for the machine to answer at all
 LOGIN_TIMEOUT = 600                     # seconds to log in once it has: typing a password and a code takes a while
@@ -76,6 +78,8 @@ class Session:
         self.recorded: List[dict] = []
         self.record_day = time.strftime('%Y-%m-%d', time.localtime(self.started))
         self.was_open = False
+        self.login_failed = False       # refused by the machine: counts towards the member's pause
+        self.ended = None               # when it ended
         self.on_end = None              # called with the session when it has ended (Sessions sets it)
         self.socket = None              # the attached browser's websocket, if any
         self.keys: 'asyncio.Queue[str]' = asyncio.Queue()
@@ -114,12 +118,15 @@ class Session:
             except Exception:
                 pass
 
-    async def attach(self, socket) -> None:
+    async def attach(self, socket, where: str = '') -> None:
         old, self.socket = self.socket, socket
         self.detached_at = None
+        print(f'[terminal] {self.owner} opened their session on {self.target} from {where or "an unknown address"}'
+              f'{" (taking it over from another browser)" if old is not None else ""}', flush=True)
         if old is not None:
             try:
-                await old.send_str(json.dumps({'t': 'taken', 'session': self.id}))
+                # The browser let go of is told where it went, so a session taken unexpectedly is noticed.
+                await old.send_str(json.dumps({'t': 'taken', 'session': self.id, 'where': where}))
                 await old.close()
             except Exception:
                 pass
@@ -288,6 +295,7 @@ class Session:
                                    'This can mean it was reinstalled, or that something is in between: nothing was '
                                    'sent. Ask an administrator to check it (HPC Terminal, Machines).')
             except asyncssh.PermissionDenied:
+                self.login_failed = True
                 raise SessionError('Login refused.' + (
                     ' Many machines refuse a password login as root whatever the password (OpenSSH\'s default, '
                     'PermitRootLogin prohibit-password): log in as your own user, and use sudo.'
@@ -334,6 +342,7 @@ class Session:
             print(f'[terminal] session of {self.owner} on {self.target} ended '
                   f'({"after login" if self.was_open else "before login"}): {self.reason}', flush=True)
             self.state = 'closed'
+            self.ended = time.time()
             self.detached_at = self.detached_at or time.time()
             try:
                 await self.say(f'\n[{self.reason}]\n')
@@ -394,6 +403,15 @@ class Sessions:
         return max(live, key=lambda s: s.started) if live else None
 
     def open(self, owner: str, connection: dict, cols: int, rows: int) -> Session:
+        # A brake on guessing passwords through the terminal: many sessions at once could otherwise each have
+        # their three tries. (The machines' own OpenSSH has its limits too.)
+        now = time.time()
+        failed = sorted(s.ended for s in self.mine(owner) if s.login_failed and s.ended and now - s.ended < FAILED_WINDOW)
+        if len(failed) >= FAILED_LOGINS:
+            wait = int(FAILED_WINDOW - (now - failed[-FAILED_LOGINS])) // 60 + 1
+            print(f'[terminal] {owner}: paused after {len(failed)} failed logins', flush=True)
+            raise SessionError(f'{len(failed)} logins were refused in the last {FAILED_WINDOW // 60} minutes: '
+                               f'wait {wait} minute{"s" if wait != 1 else ""}, and check the user name and password.')
         if len([s for s in self.mine(owner) if s.state != 'closed']) >= self.per_member:
             raise SessionError(f'You have {self.per_member} sessions open: close one first.')
         if len([s for s in self.all.values() if s.state != 'closed']) >= self.total:
@@ -401,6 +419,7 @@ class Sessions:
         s = Session(owner, connection, cols, rows)
         s.on_end = self.on_end
         self.all[s.id] = s
+        print(f'[terminal] {owner} started a session on {s.target}', flush=True)
         s.task = asyncio.ensure_future(s.run())
         return s
 

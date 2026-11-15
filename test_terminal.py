@@ -622,3 +622,43 @@ def test_the_login_question_can_be_answered_from_the_pages_own_box(tmp_path):
             out, _ = await read_until(ws, 'Welcome to the test HPC')
             assert PASSWORD not in out
     run(go())
+
+
+def test_many_refused_logins_make_a_member_wait(tmp_path, monkeypatch):
+    monkeypatch.setattr(sessions_module, 'FAILED_LOGINS', 2)
+    async def go():
+        async with World(tmp_path) as w:
+            c = await w.connection('bob')
+            for _ in range(2):
+                ws = await w.socket(connection=c['id'], new='1')
+                for _ in range(sessions_module.MAX_TRIES):
+                    await read_until(ws, 'assword:')
+                    await send(ws, 'wrong' + chr(13))
+                await read_until(ws, 'Login refused')
+                await ws.close()
+            ws = await w.socket(connection=c['id'], new='1')
+            msg = json.loads((await ws.receive()).data)
+            assert msg['t'] == 'error' and 'refused in the last 10 minutes' in msg['message']
+            # Someone else is not held up by it.
+            c2 = await w.connection('cy', host={'id': c['host_id']})
+            ws2 = await w.socket('cy', connection=c2['id'])
+            await read_until(ws2, 'assword:')
+    run(go())
+
+
+def test_a_browser_that_loses_its_session_is_told_where_it_went(tmp_path):
+    async def go():
+        async with World(tmp_path) as w:
+            c = await w.connection('bob')
+            first = await w.socket(connection=c['id'])
+            await read_until(first, 'assword:')
+            second = await w.client.ws_connect('/api/ws', params={'connection': c['id']},
+                                               headers={'X-Suite-User': 'bob', 'X-Real-IP': '10.1.2.3'})
+            taken = None
+            while taken is None:
+                msg = await asyncio.wait_for(first.receive(), timeout=10)
+                if msg.type.name == 'TEXT' and json.loads(msg.data).get('t') == 'taken':
+                    taken = json.loads(msg.data)
+            assert taken['where'] == '10.1.2.3'
+            await second.close()
+    run(go())

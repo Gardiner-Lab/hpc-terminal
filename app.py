@@ -30,7 +30,7 @@ import pages
 from sessions import SessionError, Sessions
 from store import Store
 
-APP_VERSION = '0.1.0'
+APP_VERSION = '0.1.1'
 HERE = Path(__file__).parent
 MAX_SCRIPT_BYTES = 1024 * 1024
 HOSTNAME = re.compile(r'^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$|^\[?[0-9A-Fa-f:.]+\]?$')
@@ -462,7 +462,10 @@ async def websocket(request):
                     await ws.send_str(json.dumps({'t': 'error', 'message': str(exc)}))
                     return ws
                 request.app['store'].used(c['id'])
-        await session.attach(ws)
+        # The browser's address, as the suite's proxy passes it, for the log and for a session taken over.
+        where = (request.headers.get('X-Real-IP') or
+                 (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip() or request.remote or '')
+        await session.attach(ws, where)
         session.resize(cols, rows)
         last = [time.monotonic()]
         idle = request.app['idle']

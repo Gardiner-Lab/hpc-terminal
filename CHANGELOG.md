@@ -9,14 +9,31 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-15
+
 ### Fixed
+- **Logins were cut off while the password was typed**: AsyncSSH's connect timeout (20 s) counts the login too,
+  so anyone taking longer saw "did not answer" or "Could not reach". The network connection now has 20 s and the
+  login 10 minutes.
 - **No login to an OpenSSH server without PAM** ("Too many authentication failures", the password never asked):
-  such a server lists keyboard-interactive but fails it at once without a question, and the terminal tried it
-  again until the server's MaxAuthTries ran out. A keyboard-interactive attempt that asks nothing is now not
-  tried again, and the password is asked.
+  keyboard-interactive listed but failed without a question was tried until MaxAuthTries ran out. It is now given up
+  for the password.
+- **A failed login now says why**: a root login refused by the machine (OpenSSH's PermitRootLogin), or a machine
+  turning the server away for a while after failed logins (PerSourcePenalties), instead of an empty reason.
+
+### Changed
+- **The login's questions are asked in a box of the page's own**, above the terminal: what is typed or pasted there
+  goes to the machine as it is, with the browser's handling of the keyboard (dead keys, accents) and of password
+  managers. Typing into the terminal still works.
 
 ### Added
-- Each session's end in the service's log (`docker logs lab-terminal`): whose, where, before or after login, and why.
+- **Audit log** (`docker logs`): who started a session on which machine, each time a browser opens it and from which
+  address, each login step (the question asked, never the answer), and how each session ended.
+- **A pause after 5 refused logins within 10 minutes**, per member, so passwords cannot be guessed through many
+  sessions at once.
+- **A browser that loses its session to another is told that browser's address**, so a session taken over
+  unexpectedly is noticed.
+- Runs read-only, with no capabilities and no privilege escalation, as the suite now starts it.
 
 ## [0.1.0] - 2026-11-15
 
