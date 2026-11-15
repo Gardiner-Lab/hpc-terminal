@@ -9,6 +9,8 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-15
+
 ### Added
 - **An overview of open sessions** on the HPC Terminal page: everyone's for an administrator, their labs' members'
   for a lab lead or lab administrator (the suite's lab_members). Who is connected to which machine, since when,
