@@ -204,8 +204,31 @@
     term.focus();
     var socket = null, info = null, ended = false, retry = 0, taken = false, locked = false;
 
+    // The login's question (a password, a code) in a box of the page's own: what is typed there is sent as it
+    // is, with the browser's handling of the keyboard and of password managers, not translated by the terminal.
+    function askBox(m) {
+      el('ask-prompt').textContent = m.prompt || 'Password:';
+      var input = el('ask-input');
+      input.type = m.echo ? 'text' : 'password';
+      input.autocomplete = m.echo ? 'one-time-code' : 'current-password';
+      input.value = '';
+      el('ask').hidden = false;
+      fit.fit();
+      input.focus();
+    }
+    el('ask').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var input = el('ask-input');
+      if (socket && socket.readyState === 1) { socket.send(JSON.stringify({ t: 'answer', d: input.value })); }
+      input.value = '';
+      el('ask').hidden = true;
+      fit.fit();
+      term.focus();
+    });
+
     function setState(s) {
       info = s;
+      if (s.state !== 'login' && !el('ask').hidden) { el('ask').hidden = true; el('ask-input').value = ''; fit.fit(); }
       document.title = s.label + ' · HPC Terminal';
       el('term-title').textContent = s.label;
       el('term-state').textContent = s.target + ' · ' + ({ open: 'connected', login: 'logging in', connecting: 'connecting', closed: 'ended' }[s.state] || s.state);
@@ -237,6 +260,7 @@
         if (m.t === 'status') { setState(m); }
         else if (m.t === 'error') { ended = true; term.write('\r\n\x1b[31m' + m.message + '\x1b[0m\r\n'); el('term-state').textContent = m.message; }
         else if (m.t === 'locked') { lock(); }
+        else if (m.t === 'ask') { askBox(m); }
         else if (m.t === 'taken') { taken = true; term.write('\r\n\x1b[33m[Opened in another window: this one has let go of it. Reload to take it back.]\x1b[0m\r\n'); }
       };
       socket.onclose = function () {

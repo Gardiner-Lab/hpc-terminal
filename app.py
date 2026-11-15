@@ -487,6 +487,9 @@ async def websocket(request):
                 if m.get('t') == 'in' and isinstance(m.get('d'), str):
                     last[0] = time.monotonic()
                     await session.typed(m['d'])
+                elif m.get('t') == 'answer' and isinstance(m.get('d'), str):
+                    last[0] = time.monotonic()
+                    session.answer(m['d'][:4096])
                 elif m.get('t') == 'active':
                     last[0] = time.monotonic()
                 elif m.get('t') == 'resize':

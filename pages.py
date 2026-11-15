@@ -100,6 +100,12 @@ def terminal(prefix: str, notebook: str, user: str, idle: float = 300, login: st
     <button class="tt-btn danger" type="button" id="close-session" disabled>End session</button>
   </div>
   <div class="term-warning" id="idle-warning" role="status" hidden></div>
+  <form class="term-ask" id="ask" autocomplete="off" hidden>
+    <label><span id="ask-prompt">Password:</span>
+      <input id="ask-input" type="password" autocomplete="current-password" spellcheck="false"></label>
+    <button class="tt-btn primary" type="submit">Log in</button>
+    <span class="term-hint">Sent to the machine as typed here; not kept.</span>
+  </form>
   <div id="terminal" class="term-screen"></div>
   <div class="term-locked" id="locked" hidden>
     <div><h2>Locked</h2><p id="locked-text">Signing you out…</p></div>

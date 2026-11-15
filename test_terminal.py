@@ -604,3 +604,21 @@ def test_typing_the_password_slowly_is_not_cut_off(tmp_path, monkeypatch):
             await send(ws, PASSWORD + '\r')
             await read_until(ws, 'Welcome to the test HPC')
     run(go())
+
+
+def test_the_login_question_can_be_answered_from_the_pages_own_box(tmp_path):
+    # Characters a terminal's key handling can mangle (dead keys, accents): the box sends them as they are.
+    async def go():
+        async with World(tmp_path) as w:
+            c = await w.connection('bob')
+            ws = await w.socket(connection=c['id'])
+            asked = None
+            while asked is None:
+                msg = await asyncio.wait_for(ws.receive(), timeout=10)
+                if msg.type.name == 'TEXT' and json.loads(msg.data).get('t') == 'ask':
+                    asked = json.loads(msg.data)
+            assert asked['prompt'].endswith('assword:') and asked['echo'] is False
+            await ws.send_str(json.dumps({'t': 'answer', 'd': PASSWORD}))
+            out, _ = await read_until(ws, 'Welcome to the test HPC')
+            assert PASSWORD not in out
+    run(go())

@@ -54,6 +54,11 @@ body.term-page { display: flex; flex-direction: column; height: 100vh; margin: 0
 .term-preview { max-height: 220px; overflow: auto; background: var(--tt-sunk); border-radius: 6px; padding: .5rem;
   font-size: .8rem; margin: 0; white-space: pre; }
 
+.term-ask { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .5rem .75rem;
+  background: var(--tt-card); border-bottom: 1px solid var(--tt-border); }
+.term-ask[hidden] { display: none; }
+.term-ask label { display: flex; align-items: center; gap: .5rem; font-weight: 600; }
+.term-ask input { font: inherit; padding: .35rem .5rem; border: 1px solid var(--tt-border); border-radius: 6px; min-width: 16rem; }
 .term-warning { background: var(--tt-warn-soft); color: var(--tt-warn); padding: .35rem .75rem; font-size: .9rem;
   border-bottom: 1px solid var(--tt-border); }
 .term-locked { position: fixed; inset: 0; background: rgba(30, 31, 34, .96); color: #fff; display: flex;

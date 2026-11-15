@@ -154,6 +154,12 @@ class Session:
             for ch in text:
                 self.keys.put_nowait(ch)
 
+    def answer(self, text: str) -> None:
+        """A whole answer to the login's question, from the page's own box: sent exactly as typed there, so the
+        browser's keyboard handling (dead keys, accents, a password manager) is what counts, not the terminal's."""
+        if self.state == 'login':
+            self.keys.put_nowait(('answer', text))
+
     def resize(self, cols: int, rows: int) -> None:
         self.cols, self.rows = max(10, min(cols, 1000)), max(2, min(rows, 500))
         if self.process is not None:
@@ -171,12 +177,20 @@ class Session:
         while not self.keys.empty():
             self.keys.get_nowait()
         await self.say(prompt)
+        if self.socket is not None:
+            try:
+                await self.socket.send_str(json.dumps({'t': 'ask', 'prompt': prompt.strip(), 'echo': bool(echo)}))
+            except Exception:
+                pass
         line = ''
         while True:
             try:
                 ch = await asyncio.wait_for(self.keys.get(), timeout=ASK_TIMEOUT)
             except asyncio.TimeoutError:
                 raise SessionError('Nothing was typed for five minutes: try again.')
+            if isinstance(ch, tuple):          # the page's box: the whole answer at once
+                await self.say(('' if not echo else ch[1]) + '\n')
+                return ch[1]
             if ch in ('\r', '\n'):
                 await self.say('\n')
                 return line
