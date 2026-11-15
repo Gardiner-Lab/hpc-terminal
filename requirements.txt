@@ -1,0 +1,4 @@
+# For the tests (CI). The image uses Alpine 3.20's packages of the same versions (Dockerfile).
+aiohttp==3.9.3
+asyncssh==2.14.2
+pytest
