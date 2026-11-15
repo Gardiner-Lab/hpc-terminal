@@ -145,6 +145,8 @@ class Session:
 
     async def ask(self, prompt: str, echo: bool) -> str:
         """A line typed in the terminal, shown or not as the machine asks, for the login only."""
+        # The question in the log (never the answer), so a failed login shows what the machine asked.
+        print(f'[terminal] {self.owner} on {self.target}: the machine asks {prompt.strip()!r}', flush=True)
         self.state = 'login'
         await self.status()
         while not self.keys.empty():
@@ -215,7 +217,9 @@ class Session:
 
                 def kbdint_auth_requested(self):
                     if wrong[0] >= MAX_TRIES or (kbd['tries'] and not kbd['asked']):
+                        print(f'[terminal] {session.owner} on {session.target}: keyboard-interactive given up', flush=True)
                         return None          # on to the password
+                    print(f'[terminal] {session.owner} on {session.target}: trying keyboard-interactive', flush=True)
                     kbd['tries'] += 1
                     kbd['asked'] = False
                     return ''
@@ -231,6 +235,7 @@ class Session:
                     return [await session.ask(prompt, echo) for prompt, echo in prompts]
 
                 async def password_auth_requested(self):
+                    print(f'[terminal] {session.owner} on {session.target}: trying password', flush=True)
                     if not again('password'):
                         return None
                     return await session.ask(f"{c['username']}@{c['hostname']}'s password: ", False)
