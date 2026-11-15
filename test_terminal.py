@@ -746,3 +746,29 @@ def test_every_module_is_copied_into_the_image():
     copied = next(line for line in (here / 'Dockerfile').read_text().splitlines() if line.startswith('COPY app.py'))
     modules = {p.name for p in here.glob('*.py') if not p.name.startswith('test_')}
     assert modules <= set(copied.split()), sorted(modules - set(copied.split()))
+
+
+
+def test_the_networks_saved_on_the_dashboard_count_at_once_within_the_servers_limit(tmp_path, monkeypatch):
+    suite = tmp_path / 'suite.db'
+    conn = sqlite3.connect(suite)
+    conn.execute('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)')
+    conn.commit()
+    monkeypatch.setenv('SUITE_DATABASE_PATH', str(suite))
+    monkeypatch.setenv('ALLOWED_NETWORKS', '192.168.2.0/24')
+    assert netpolicy.source() == 'env' and netpolicy.permitted('192.168.2.19')
+
+    def save(entries):
+        c = sqlite3.connect(suite)
+        c.execute("INSERT INTO settings VALUES ('terminal.networks', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                  (json.dumps(entries),))
+        c.commit()
+        c.close()
+    save([{'network': '131.211.32.0/24', 'note': 'UU'}, {'network': '10.5.0.0/16', 'note': ''}])
+    assert netpolicy.source() == 'dashboard'
+    assert netpolicy.permitted('131.211.32.87') and netpolicy.permitted('10.5.1.2')
+    assert not netpolicy.permitted('192.168.2.19')                      # the dashboard's list replaces .env's
+    monkeypatch.setenv('NETWORK_LIMIT', '10.0.0.0/8')                    # the server's bound
+    assert not netpolicy.permitted('131.211.32.87') and netpolicy.permitted('10.5.1.2')
+    save('not a list of networks')
+    assert netpolicy.allowed() == [] and not netpolicy.permitted('10.5.1.2')   # unreadable: nothing, not everything
